@@ -1,327 +1,192 @@
-// This file will handle communication with all nodes in the network 
+#include "NodeProgram.h"
+ using namespace std;
 
 
-#include"ComputerProgram.h"
-using namespace std;
+NodeEntry NodeTable[MAX_NUM_NODES];
+unsigned char HostMAC[8];
+unsigned char NodeMAC[8];
 
-NodeEntry NodeList[MAX_NUM_NODES];
-unsigned char HostMAC[8]; 
 
-// Find all nodes in the network and fill network table with that information
-void NetworkDiscover(void)
+void FindNeighbors (void)
 {
-	int nBytesSent, nBytesRead, i;
-	char command[20];
-	char response[MAX_NUM_NODES*ND_RESPONSE_SIZE];
-	clock_t timeout;   
+    char response[MAX_NUM_NODES*FN_RESPONSE_SIZE];
+    int timeout;
+    int numBytesRead = 0;
 
 
 
-	// First need to set option to display RSSI. This is a 0x04 for NO
-	command[0] = 'A';
-	command[1] = 'T';
-	command[2] = 'N';
-	command[3] = 'O';
-	command[4] = '0';
-	command[5] = 'x';
-	command[6] = '0';
-	command[7] = '4';
-	command[8] = 13; // Add carriage return 
+	cout << "Setting option to return RSSI...  ";
+    serial << "ATNO0x04\r";
 
+    CheckForOK();
 
-	cout << "Setting option to return RSSI... ";
-	nBytesSent = 0;
-	nBytesSent = serial.SendData(command, 9);
-	if (!nBytesSent)
-	{
-		cout << "Error writing to serial port" << endl;
-		WaitForExit();
-	}
-	cout << "done" << endl;
+   cout << "Now sending find neighbors command... " << endl;
 
-	CheckForOKResponse(); 
+    serial << "ATFN\r";
 
-	ApplyChangeCommand(); 
+    numBytesRead = 0;
+    timeout = 0;
 
+    while (timeout < 1) // timeout didn't seem to be working so just trying one big read for now
+    {
+        if(usleep(4000000)) // Max time = NT+0.8 = 4 seconds
+            cout << "sleep failed" << endl;
+        numBytesRead += serial.CustomRead(&response[numBytesRead], MAX_NUM_NODES*FN_RESPONSE_SIZE);// Only try reading 2 at a time to see if this makes it better
+        timeout++; // Timeout will be dictated by number of usleep operations
+    }
+    cout << numBytesRead << "Bytes read" << endl;
 
-	// Now send network discover command
-	command[0] = 'A';
-	command[1] = 'T'; 
-	command[2] = 'N'; 
-	command[3] = 'D'; 
-	command[4] = 13; // Add carriage return 
-
-	nBytesSent = 0;
-	nBytesSent = serial.SendData(command, 5);
-	cout << "Sending Network Discover Command... " << endl; 
-	if (!nBytesSent)
-	{
-		cout << "Error writing to serial port" << endl;
-		WaitForExit();
-	}
-	timeout = clock() + 4*CLOCKS_PER_SEC; // Give it 4 sec to respond (timeout is 3.2 sec)
-	nBytesRead = 0;
-	while (clock() < timeout)
-	{
-		nBytesRead += serial.ReadData((char*)&response[nBytesRead], MAX_NUM_NODES*ND_RESPONSE_SIZE);
-		if (nBytesRead >= MAX_NUM_NODES*ND_RESPONSE_SIZE)
-			break; 
-		Sleep(100); // Only poll every 100 ms
-	} 
-
-
-	if (!nBytesRead)
-		cout << "No Response" << endl; 
-	else
-	{
-		cout << nBytesRead << " bytes read" << endl; 
-
-		ParseNDResponse(response, nBytesRead);
-
-	}
-}
-
-// Computer XBEE module will act as Node 0 and us this to find all its neighbors
-// Note that this has the same response size/type as network discover
-void FindNeighbors(void)
-{
-	int nBytesSent, nBytesRead, i;
-	char command[20];
-	char response[MAX_NUM_NODES*ND_RESPONSE_SIZE];
-	clock_t timeout;
-	// Now send network discover command
-	command[0] = 'A';
-	command[1] = 'T';
-	command[2] = 'F';
-	command[3] = 'N';
-	command[4] = 13; // Add carriage return 
-
-	nBytesSent = 0;
-	nBytesSent = serial.SendData(command, 5);
-	cout << "Sending Find Neighbor command..."; 
-	if (!nBytesSent)
-	{
-		cout << "Error writing to serial port" << endl;
-		WaitForExit();
-	}
-	timeout = clock() + 4 * CLOCKS_PER_SEC; // Give it 4 sec to respond (timeout is 3.2 sec)
-	nBytesRead = 0;
-	while (clock() < timeout)
-	{
-		// Max number of neighbors is the number of nodes -1
-		nBytesRead += serial.ReadData((char*)&response[nBytesRead], (MAX_NUM_NODES-1)*ND_RESPONSE_SIZE);
-		if (nBytesRead >= (MAX_NUM_NODES - 1)*ND_RESPONSE_SIZE)
-			break;
-		Sleep(100); // Only poll every 100 ms
-	}
-
-		ParseFNResponse(response, nBytesRead);
-		cout << "done" << endl; 
+    ParseFNResponse(response, numBytesRead);
+    DisplayNodeTable();
 
 }
 
-void SetNetworkID(void)
+
+void SetNetworkID (void)
 {
-	char command[12];
-	int nBytesRead, nBytesSent;
-	char response[12];
-	clock_t timeout;
+    cout<<"Setting network ID to 0x0001... ";
+    serial << "ATID0x0001\r";
 
-	// Set network ID to 0x0001
-	command[0] = 'A';
-	command[1] = 'T';
-	command[2] = 'I';
-	command[3] = 'D';
-	command[4] = '0';
-	command[5] = 'x';
-	command[6] = '0';
-	command[7] = '0';
-	command[8] = '0';
-	command[9] = '1';
-	command[10] = 13; // Add carriage return 
-
-	cout << "Setting network ID to 0x0001... "; 
-	nBytesSent = 0;
-	nBytesSent = serial.SendData(command, 11);
-	if (!nBytesSent)
-	{
-		cout << "Error writing to serial port" << endl;
-		WaitForExit();
-	}
-	cout << "done" << endl;
-
-	CheckForOKResponse(); 
-
-	// Apply change
-	ApplyChangeCommand(); 
+    CheckForOK();
+    ApplyChange();
 
 }
 
-void SendTableRequest(int node)
+void WaitForNetworkCommand(void)
 {
-	int i, nBytesSent; 
-	TxFrame request;
+    int i;
+    char response[2*NETWORK_REQUEST_SIZE];
+    unsigned char *commandPointer;
+    int numBytesRead = 0;
 
-	request.delim = 0x7E; 
-	request.length[0] = 0; // Way less than 1 byte so MSB is always 0
-	request.length[1] = sizeof(TxFrame) - 4; // 4 header bytes not counted? (Based on XCTU Frame Generator)
-	request.type = 0x10; // Request type
-	request.ID = 1; 
+
+    while(numBytesRead < NETWORK_REQUEST_SIZE)
+    {
+        usleep(1000000); // Wait 1ms before checking
+        // Check for a little bit more than size in case of garbage carriage returns
+        numBytesRead += serial.CustomRead(&response[numBytesRead], 3+NETWORK_REQUEST_SIZE);
+    }
+
+    // Look for start of request (0x7e) to align data
+    commandPointer = (unsigned char*)response;
+    i=0;
+    while(*commandPointer != 0x7e)
+    {
+        commandPointer++;
+        i++;
+        if(i==3)
+        {
+            cout << "Request start not found" << endl;
+            return;
+        }
+    }
+
+    // Copy MAC of requester. Doesn't work because of sign corruption.
+//    for(i=0; i<8; i++)
+//        HostMAC[i] = commandPointer[REQUEST_MAC_OFFSET+i];
+
+    // Now look for payload. Only care about first 2 bytes for header(1, 2)
+    if(commandPointer[REQUEST_PAYLOAD_OFFSET] == 1 && commandPointer[REQUEST_PAYLOAD_OFFSET+1] == 2)
+    {
+        // Undo byte splitting to get MAC from rest of payload (next 16 bytes)
+        CombineByteArray(&commandPointer[REQUEST_PAYLOAD_OFFSET+2],HostMAC, 8);
+        std:: cout << "Sending table to MAC: ";
+        for(i=0; i<7; i++)
+            cout << uppercase << setw(2) << setfill('0') << (int)HostMAC[i] << ":";
+        cout << uppercase << setw(2) << setfill('0') << (int)HostMAC[7] << endl;
+
+        // Send first 3 nodes
+        SendTableFrame(0);
+        FlushAPIBuffer();
+        // Send last 2
+        SendTableFrame(1);
+        FlushAPIBuffer();
+
+
+    }
+
+
+}
+
+
+void SendTableFrame(int sequence)
+{
+	int i, nBytesSent;
+	TxFrame frame;
+	char* framePointer;
+	string message;
+	unsigned char temp;
+
+	frame.delim = 0x7E;
+	frame.length[0] = 0; // Way less than 1 byte so MSB is always 0
+	frame.length[1] = sizeof(TxFrame) - 4; // 4 header bytes not counted? (Based on XCTU Frame Generator)
+	frame.type = 0x10; // Request type
+	frame.ID = 1;
 	for (i = 0; i < 8; i++)
-		request.MAC[i] = NodeList[node].MAC[i]; 
+		frame.MAC[i] = HostMAC[i];
 
-	request.FFFE[0] = 0xFF; 
-	request.FFFE[1] = 0xFE; 
-	request.broadcast = 0; 
-	request.option = 0; 
-	request.payload[0] = 1; // Send a 1, 2 to request table
-	request.payload[1] = 2;
+	frame.FFFE[0] = 0xFF;
+	frame.FFFE[1] = 0xFE;
+	frame.broadcast = 0;
+	frame.option = 0;
+	frame.payload[0] = 3; // Table header is a 3
+	frame.payload[1] = sequence; // Sequence number
+	SplitByteArray(NodeMAC, &frame.payload[2], 8); // Next 8 spots is this node's MAC
 
-	// Split HostMAC into rest of payload (16 bytes total) 
-	SplitByteArray(HostMAC, &request.payload[2], 8); 
+	if(!sequence)
+	{
+        // Send first 3 Nodes the first time around
+        for(i=0; i<3; i++)
+        {
+            // Every iteration adds 16+2 = 18 bytes
+            SplitByteArray(NodeTable[i].MAC, &frame.payload[i*18+18], 8); // Copy MAC
+
+            // Need to split RSSI too
+            // RSSI is short but only LSB holds info. Split LSB into 2 bytes
+            temp =((unsigned char)NodeTable[i].RSSI & 0x00ff);
+            SplitByteArray(&temp, &frame.payload[i*18+34], 1);
+        }
+    }
+    else
+    {
+        // Send last 2 nodes
+        for(i=0; i<2; i++)
+        {
+            // Every iteration adds 16+2 = 18 bytes
+            SplitByteArray(NodeTable[3+i].MAC, &frame.payload[i*18+18], 8); // Copy MAC
+
+            // Need to split RSSI too
+            // RSSI is short but only LSB holds info. Split LSB into 2 bytes
+            temp =((unsigned char)NodeTable[3+i].RSSI & 0x00ff);
+            SplitByteArray(&temp, &frame.payload[i*18+34], 1);
+        }
+    }
 
 
-	CalculateRequestChecksum(&request); 
+
+	CalculateFrameChecksum(&frame);
 
 	// Send it off
-	cout << "Sending request for table from node " << node << "... ";
-	nBytesSent = 0;
-	nBytesSent = serial.SendData((char*)&request, sizeof(TxFrame));
-	if (!nBytesSent)
-	{
-		cout << "Error writing to serial port" << endl;
-		WaitForExit();
-	}
-	cout << "done" << endl; 
+	cout << "Sending request for table... ";
+	// Writing a whole block using serial.write doesn't work for some reason
+    // serial.write((char*)&frame, sizeof(TxFrame));
+
+    // Seems to only work if I append it to a string first
+    framePointer = (char*)&frame;
+    for (i=0; i<sizeof(TxFrame); i++)
+    {
+        message.append(1, *framePointer);
+        framePointer++;
+    }
+        serial << message;
+    cout << "done." << endl;
 }
 
-
-void WaitForTableFrame(int node)
+void SetFNTimeout(void)
 {
-	char response[300]; // Just trying to read 10 bytes for now, change it later
-	int nBytesRead, i, neighbor; 
-	int payloadOffset; 
-	clock_t timeout;
-	unsigned char sourceMac[8];
+    cout<<"Setting FN Timeout to 3.2 sec... ";
+    serial << "ATNT0x20\r";
 
-	timeout = clock() + 2 * CLOCKS_PER_SEC; // Give it 2 sec to respond
-	nBytesRead = 0;
-	payloadOffset = 26;
-	while (clock() < timeout)
-	{
-		// First payload: Looking for 99 bytes:
-		// First 11 bytes redundant (automatic request response)
-		// After that is start of table frame
-		// 15 bytes of redundant header info
-		// Next 72 bytes is payload 
-		// Last is checksum
-
-		// Second payload: 
-		// 88 bytes
-
-		// Total: 187 bytes
-		nBytesRead += serial.ReadData((char*)&response[nBytesRead], 98);
-		if (nBytesRead >= 187)
-		{
-			// Check payload header of 3 for valid payload. First packet should have sequence of 0. 
-			if (response[payloadOffset] == 3 && response[payloadOffset + 1] == 0)
-			{
-				// First is source MAC address 
-				payloadOffset += 2;
-				CombineByteArray((unsigned char*)&response[payloadOffset], sourceMac, 8);
-				// Now check if it matches expected MAC
-				for (i = 0; i < 8; i++)
-				{
-					if (sourceMac[i] != NodeList[node].MAC[i])
-					{
-						cout << "Error. Packet came from unexpected node." << endl;
-						return;
-					}
-				}
-				payloadOffset += 16;
-				// All checks out, copy in table. 
-				for (neighbor = 0; neighbor < 3; neighbor++)
-				{
-					// MAC
-					CombineByteArray((unsigned char*)&response[payloadOffset], NodeList[node].NodeTable[neighbor].MAC, 8);
-					payloadOffset += 16;
-					// RSSI
-					CombineByteArray((unsigned char*)&response[payloadOffset], (unsigned char*)&NodeList[node].NodeTable[neighbor].RSSI, 1);
-					payloadOffset += 2;
-				}
-			}
-			// Now move to second frame
-			payloadOffset = 114;
-			// Check payload header of 3 for valid payload. Second frame should have sequence of 1. 
-			if (response[payloadOffset] == 3 && response[payloadOffset + 1] == 1)
-			{
-				// First is source MAC address 
-				payloadOffset += 2;
-				CombineByteArray((unsigned char*)&response[payloadOffset], sourceMac, 8);
-				// Now check if it matches expected MAC
-				for (i = 0; i < 8; i++)
-				{
-					if (sourceMac[i] != NodeList[node].MAC[i])
-					{
-						cout << "Error. Packet came from unexpected node." << endl;
-						return;
-					}
-				}
-				payloadOffset += 16;
-				// All checks out, copy in table for last 2 neighbors
-				for (neighbor = 0; neighbor < 2; neighbor++)
-				{
-					// MAC
-					CombineByteArray((unsigned char*)&response[payloadOffset], NodeList[node].NodeTable[neighbor + 3].MAC, 8);
-					payloadOffset += 16;
-					// RSSI
-					CombineByteArray((unsigned char*)&response[payloadOffset], (unsigned char*)&NodeList[node].NodeTable[neighbor + 3].RSSI, 1);
-					payloadOffset += 2;
-				}
-			}
-
-			return;
-		}
-			
-		Sleep(100); // Only poll every 100 ms
-	}
-
-
-	 cout << "No valid response. Only " << nBytesRead << "bytes read." << endl;
-
-
-}
-
-// Set timeout values for ND and FN commands to 3.2 sec 
-void SetNetworkTimeout(void)
-{
-	char command[12];
-	int nBytesSent;
-	clock_t timeout;
-
-	command[0] = 'A';
-	command[1] = 'T';
-	command[2] = 'N';
-	command[3] = 'T';
-	command[4] = '0';
-	command[5] = 'x';
-	command[6] = '2';
-	command[7] = '0';
-	command[8] = 13; // Add carriage return 
-
-	cout << "Setting network timeout to 3.2 sec... ";
-	nBytesSent = 0;
-	nBytesSent = serial.SendData(command, 9);
-	if (!nBytesSent)
-	{
-		cout << "Error writing to serial port" << endl;
-		WaitForExit();
-	}
-	cout << "done" << endl;
-
-	CheckForOKResponse();
-
-	// Apply change
-	ApplyChangeCommand();
-
+    CheckForOK();
+    ApplyChange();
 }
